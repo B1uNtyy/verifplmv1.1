@@ -1,0 +1,146 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+ package org.kie.kogito.examples;
+
+unit RequestUnit;
+
+import org.kie.kogito.examples.RequestUnit;
+import org.kie.kogito.examples.Request;
+import org.drools.ruleunits.api.DataSource;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+query "run"
+$j : /data;
+end
+
+rule "Conversion Json String vers Liste"
+when
+$j: /data;
+/data[received == false];
+then
+$j.MapJson($j.getJson());
+$j.setReceived(true);
+end
+
+rule "Vérification de la présence du système primaire"
+when
+$j: /data[proceed == false]  // Assurez-vous que received est vrai avant de vérifier la liste
+$system: Map(this["PartName"] == "Système essai") from $j.getComponents()
+then
+$j.setProceed(true);
+end
+
+rule "Vérification sur tous les éléments"
+when
+$j: /data
+$component: Map() from $j.getComponents()
+eval(checkFor($component, "LogisticStatus", "Off"));
+then
+$j.setRegleOff(returnID($component,"LogisticStatus", "Off"));
+$j.setRegleParent(returnParentChild($component, "LogisticStatus", "LogisticStatus", "Off", "Off"));
+end
+
+function List<String> returnParentChild(Map component, String champsPere, String champsFils, String valeurPere, String valeurFils) {
+  List<String> pairs = new ArrayList<String>();
+
+  // Vérifier si le composant actuel est le parent recherché
+  if (valeurPere.equals(component.get(champsPere))) {
+    System.out.println("Parent trouvé: " + component.get("PartName"));
+
+    // Récupérer la liste des enfants du composant actuel
+    List<Map> children = (List<Map>) component.get("Components");
+    if (children != null) {
+      // Parcourir tous les enfants du c  omposant
+      for (Map child : children) {
+        // Vérifier si l'enfant correspond au fils recherché
+        if (valeurFils.equals(child.get(champsFils))) {
+          String pair = "P: " + component.get("PartName") + ", F: " + child.get("PartName");
+          pairs.add(pair);
+          System.out.println("Fils trouvé paire : " + pair);
+        }
+
+        // Ajouter les paires des enfants de manière récursive
+        pairs.addAll(returnParentChild(child, champsPere, champsFils, valeurPere, valeurFils));
+      }
+    } else {
+      // Si la liste des enfants est vide, afficher un message
+      System.out.println("Liste des enfants vide pour " + component.get("PartName"));
+    }
+  } else {
+    // Si le composant actuel n'est pas le parent recherché, parcourir ses enfants de manière récursive
+    List<Map> children = (List<Map>) component.get("Components");
+    if (children != null) {
+      for (Map child : children) {
+        // Ajouter les paires des enfants de manière récursive
+        pairs.addAll(returnParentChild(child, champsPere, champsFils, valeurPere, valeurFils));
+      }
+    }
+  }
+
+  return pairs;
+}
+
+
+ 
+function List<String> returnID(Map component, String champs, String valeur) {
+  List<String> maliste = new ArrayList<String>();
+  if (valeur.equals(component.get(champs))) {
+    maliste.add((String) component.get("Number"));
+  }
+  for (Object entryObj : component.entrySet()) {
+    if (entryObj instanceof Map.Entry) {
+      Map.Entry entry = (Map.Entry) entryObj;
+      if (entry.getValue() instanceof Map) {
+        maliste.addAll(returnID((Map) entry.getValue(), champs, valeur));
+        } else if (entry.getValue() instanceof List) {
+          for (Object item : (List) entry.getValue()) {
+            if (item instanceof Map) {
+              maliste.addAll(returnID((Map) item, champs, valeur));
+                }
+              }
+            }
+      }
+  }
+  return maliste;
+}
+ 
+
+function boolean checkFor(Map component, String champs, String valeur) {
+  for (Object entryObj : component.entrySet()) {
+    Map.Entry entry = (Map.Entry) entryObj;
+    if (champs.equals(entry.getKey()) && valeur.equals(entry.getValue())) {
+      return true;
+      } else if (entry.getValue() instanceof Map) {
+        if (checkFor((Map) entry.getValue(), champs, valeur)) {
+          return true;
+          }
+        } else if (entry.getValue() instanceof List) {
+          for (Object item : (List) entry.getValue()) {
+            if (item instanceof Map && checkFor((Map) item, champs, valeur)) {
+              return true;
+              }
+            }
+          }
+    }
+    return false;
+}
